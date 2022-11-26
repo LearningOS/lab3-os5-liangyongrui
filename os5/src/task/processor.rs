@@ -53,10 +53,8 @@ lazy_static! {
 /// and switch the process through __switch
 pub fn run_tasks() {
     loop {
-        log::debug!("run_tasks");
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task() {
-            log::debug!("run_tasks A {}", task.pid.0);
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
@@ -65,7 +63,6 @@ pub fn run_tasks() {
             if task_inner.start_time == 0 {
                 task_inner.start_time = get_time_us();
             }
-            log::debug!("run_tasks B {}", task.pid.0);
             drop(task_inner);
             // release coming task TCB manually
             processor.current = Some(task);
@@ -74,8 +71,6 @@ pub fn run_tasks() {
             unsafe {
                 __switch(idle_task_cx_ptr, next_task_cx_ptr);
             }
-        } else {
-            log::error!("all finished");
         }
     }
 }
@@ -122,7 +117,6 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 
 /// Return to idle control flow for new scheduling
 pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
-    log::debug!("schedule");
     let mut processor = PROCESSOR.exclusive_access();
     let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
     drop(processor);
@@ -139,8 +133,23 @@ pub fn mmap(start: usize, len: usize, port: usize) -> isize {
     if !task.inner_exclusive_access().memory_set.insert_framed_area(
         VirtAddr(start),
         VirtAddr(start + len),
-        MapPermission::from_bits_truncate((port << 1) as u8),
+        MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U,
     ) {
+        return -1;
+    }
+    0
+}
+
+pub fn munmap(start: usize, len: usize) -> isize {
+    if start & (PAGE_SIZE - 1) != 0 {
+        return -1;
+    }
+    let task = current_task().unwrap();
+    if !task
+        .inner_exclusive_access()
+        .memory_set
+        .unmap(VirtAddr(start), VirtAddr(start + len))
+    {
         return -1;
     }
     0

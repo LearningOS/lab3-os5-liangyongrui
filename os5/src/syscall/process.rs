@@ -5,7 +5,7 @@ use crate::loader::get_app_data_by_name;
 use crate::mm::{translated_refmut, translated_str};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next, get_current_task_info,
-    suspend_current_and_run_next, TaskStatus,
+    mmap, suspend_current_and_run_next, TaskStatus, munmap,
 };
 use crate::timer::get_time_us;
 use alloc::sync::Arc;
@@ -128,22 +128,19 @@ pub fn sys_set_priority(_prio: isize) -> isize {
 
 // YOUR JOB: 扩展内核以实现 sys_mmap 和 sys_munmap
 pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
-    -1
+    mmap(start, len, port)
 }
 
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    munmap(start, len)
 }
 
 //
 // YOUR JOB: 实现 sys_spawn 系统调用
 // ALERT: 注意在实现 SPAWN 时不需要复制父进程地址空间，SPAWN != FORK + EXEC
 pub fn sys_spawn(path: *const u8) -> isize {
-    let token = current_user_token();
-    log::info!("sys_spawn token: {token}");
-    let path = translated_str(token, path);
-    log::info!("sys_spawn path: {path}");
-    let res = if let Some(data) = get_app_data_by_name(path.as_str()) {
+    let path = translated_str(current_user_token(), path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
         let new_task = current_task().unwrap().spawn(data);
         let new_pid = new_task.pid.0;
         // add new task to scheduler
@@ -151,7 +148,5 @@ pub fn sys_spawn(path: *const u8) -> isize {
         new_pid as isize
     } else {
         -1
-    };
-    log::info!("sys_spawn: {res}");
-    res
+    }
 }

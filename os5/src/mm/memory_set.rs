@@ -47,6 +47,16 @@ impl MemorySet {
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
+
+    pub fn unmap(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        for vpn in VPNRange::new(start_va.floor(), end_va.ceil()) {
+            if !self.page_table.unmap(vpn) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Assume that no conflicts.
     pub fn insert_framed_area(
         &mut self,
@@ -57,8 +67,7 @@ impl MemorySet {
         self.push(
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
-        );
-        true
+        )
     }
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self

@@ -231,7 +231,7 @@ impl TaskControlBlock {
             entry_point,
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
-            self.kernel_stack.get_top(),
+            kernel_stack_top,
             trap_handler as usize,
         );
         task_control_block

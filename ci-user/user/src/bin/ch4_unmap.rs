@@ -15,6 +15,7 @@ fn main() -> i32 {
     let start: usize = 0x10000000;
     let len: usize = 4096;
     let prot: usize = 3;
+    println!("######### start");
     assert_eq!(0, mmap(start, len, prot));
     assert_eq!(mmap(start + len, len * 2, prot), 0);
     assert_eq!(munmap(start, len), 0);

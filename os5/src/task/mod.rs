@@ -69,12 +69,9 @@ pub fn exit_current_and_run_next(exit_code: i32) {
         }
     }
     // ++++++ release parent PCB
-    log::info!("exit_current_and_run_next: children.clear");
     inner.children.clear();
-    log::info!("exit_current_and_run_next: recycle_data_pages");
     // deallocate user space
     inner.memory_set.recycle_data_pages();
-    log::info!("exit_current_and_run_next: drop");
     drop(inner);
     // **** release current PCB
     // drop task manually to maintain rc correctly
