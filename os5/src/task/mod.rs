@@ -27,9 +27,7 @@ pub use task::{TaskControlBlock, TaskStatus};
 pub use context::TaskContext;
 pub use manager::add_task;
 pub use pid::{pid_alloc, KernelStack, PidHandle};
-pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-};
+pub use processor::*;
 
 /// Make current task suspended and switch to the next task
 pub fn suspend_current_and_run_next() {
@@ -61,9 +59,9 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     // Record exit code
     inner.exit_code = exit_code;
     // do not move to its parent but under initproc
-
     // ++++++ access initproc TCB exclusively
     {
+        // 当INITPROC 退出时，这里会引发一个panic 退出内核
         let mut initproc_inner = INITPROC.inner_exclusive_access();
         for child in inner.children.iter() {
             child.inner_exclusive_access().parent = Some(Arc::downgrade(&INITPROC));
@@ -71,10 +69,12 @@ pub fn exit_current_and_run_next(exit_code: i32) {
         }
     }
     // ++++++ release parent PCB
-
+    log::info!("exit_current_and_run_next: children.clear");
     inner.children.clear();
+    log::info!("exit_current_and_run_next: recycle_data_pages");
     // deallocate user space
     inner.memory_set.recycle_data_pages();
+    log::info!("exit_current_and_run_next: drop");
     drop(inner);
     // **** release current PCB
     // drop task manually to maintain rc correctly

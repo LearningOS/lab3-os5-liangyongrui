@@ -4,11 +4,14 @@
 //! the current running state of CPU is recorded,
 //! and the replacement and transfer of control flow of different applications are executed.
 
-
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::config::PAGE_SIZE;
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
+use crate::syscall::TaskInfo;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -35,7 +38,7 @@ impl Processor {
         self.current.take()
     }
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
-        self.current.as_ref().map(|task| Arc::clone(task))
+        self.current.as_ref().map(Arc::clone)
     }
 }
 
@@ -50,13 +53,19 @@ lazy_static! {
 /// and switch the process through __switch
 pub fn run_tasks() {
     loop {
+        log::debug!("run_tasks");
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task() {
+            log::debug!("run_tasks A {}", task.pid.0);
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.start_time == 0 {
+                task_inner.start_time = get_time_us();
+            }
+            log::debug!("run_tasks B {}", task.pid.0);
             drop(task_inner);
             // release coming task TCB manually
             processor.current = Some(task);
@@ -65,6 +74,8 @@ pub fn run_tasks() {
             unsafe {
                 __switch(idle_task_cx_ptr, next_task_cx_ptr);
             }
+        } else {
+            log::error!("all finished");
         }
     }
 }
@@ -77,6 +88,21 @@ pub fn take_current_task() -> Option<Arc<TaskControlBlock>> {
 /// Get a copy of the current task
 pub fn current_task() -> Option<Arc<TaskControlBlock>> {
     PROCESSOR.exclusive_access().current()
+}
+
+pub fn add_syscall_times(syscall_id: usize) {
+    let task = current_task().unwrap();
+    task.inner_exclusive_access().syscall_times[syscall_id] += 1;
+}
+
+pub fn get_current_task_info() -> TaskInfo {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    TaskInfo {
+        syscall_times: inner.syscall_times,
+        status: inner.task_status,
+        time: (get_time_us() - inner.start_time) / 1000,
+    }
 }
 
 /// Get token of the address space of current task
@@ -96,10 +122,26 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 
 /// Return to idle control flow for new scheduling
 pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
+    log::debug!("schedule");
     let mut processor = PROCESSOR.exclusive_access();
     let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
     drop(processor);
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+    if start & (PAGE_SIZE - 1) != 0 || port & 0x7 == 0 || port & !0x7 != 0 {
+        return -1;
+    }
+    let task = current_task().unwrap();
+    if !task.inner_exclusive_access().memory_set.insert_framed_area(
+        VirtAddr(start),
+        VirtAddr(start + len),
+        MapPermission::from_bits_truncate((port << 1) as u8),
+    ) {
+        return -1;
+    }
+    0
 }
